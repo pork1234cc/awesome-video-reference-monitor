@@ -1,0 +1,228 @@
+# awesome-video-reference-monitor
+
+一个可独立安装的 Agent Skill，用于登记和监控抖音、微信视频号对标账号，并提取达标作品的口播文案。仓库根目录本身就是 `awesome-video-reference-monitor` Skill。
+
+项目默认使用纯本地 Markdown，也可切换到飞书多维表格协作模式。两种模式不会同时维护账号清单；素材 Markdown 始终保存在当前项目中。
+
+## 功能列表
+
+- 从任意一条抖音或微信视频号作品链接解析并登记对标账号。
+- 按“平台 + API 查询 ID”幂等保存账号，支持本地 Markdown 或飞书账号表。
+- 串行监控全部账号最近 72 小时内发布的视频作品。
+- 支持按点赞、收藏、评论、转发和转赞比筛选新素材，并可通过 Agent 使用自然语言描述条件。
+- 下载媒体、提取音频，并通过 DashScope Qwen ASR 生成口播逐字稿。
+- 将作品信息、互动数据和逐字稿保存为本地 Markdown。
+- 飞书模式下把新素材和已有案例数据幂等同步到用户自己的案例表。
+- 跨素材库和人工案例目录去重；已有素材只刷新点赞、收藏、评论、转发和更新时间。
+- 提供 `记录对标` 与 `监控对标` 两种 Agent Skill 触发方式。
+
+默认筛选规则：
+
+- 作品发布时间位于执行时刻向前 72 小时内，包含边界，排除未来时间。
+- 转发数至少为 `500`。
+- 点赞数大于零时，`转发数 / 点赞数` 至少为 `1.5`。
+- 点赞数为零或负值时，只检查转发数。
+
+提供自定义指标条件时，会整体替换上述转发和转赞比门槛；没有提到的指标不参与筛选。多个条件默认使用“且”，明确指定“或”时才使用“或”。时间窗口仍默认 72 小时，可单独覆盖。转赞比固定为 `转发数 / 点赞数`，自定义比例条件遇到点赞为零或缺失时不通过。
+
+## 快速开始
+
+### 1. 准备环境
+
+运行环境：
+
+- Windows PowerShell
+- Python 3.10 或更高版本
+- Node.js 20 或更高版本
+- FFmpeg 与 FFprobe
+- TikHub API Key
+- DashScope Qwen ASR API Key 和 Workspace ID
+
+克隆项目：
+
+```powershell
+git clone https://github.com/pork1234cc/awesome-video-reference-monitor.git
+Set-Location awesome-video-reference-monitor
+```
+
+执行初始化脚本：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
+```
+
+脚本会创建 `.venv`、以 editable 模式安装 Python 项目、安装视频号解密所需的 Node.js 依赖，并默认安装 Playwright Chromium。
+
+如暂时不需要安装浏览器，可执行：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1 -SkipBrowserInstall
+```
+
+### 2. 配置密钥
+
+初始化脚本首次执行时会自动从 `assets/env.example` 创建根目录 `.env`。如果跳过初始化，也可以手动复制：
+
+```powershell
+Copy-Item -LiteralPath .\assets\env.example -Destination .\.env
+```
+
+至少填写：
+
+```env
+TIKHUB_API_KEY=your_tikhub_api_key
+DASHSCOPE_API_KEY=sk-your_dashscope_api_key
+DASHSCOPE_ASR_WORKSPACE_ID=your_workspace_id
+```
+
+完整配置及 FFmpeg、Node.js 自定义路径见 [assets/env.example](assets/env.example)。`.env` 已被 Git 忽略，不要提交或公开其中的密钥。
+
+默认配置为纯本地模式：
+
+```env
+ARTICLEMONITOR_STORAGE_BACKEND=local
+```
+
+如需多人协作，可切换为飞书模式：
+
+```env
+ARTICLEMONITOR_STORAGE_BACKEND=feishu
+FEISHU_APP_ID=cli_your_app_id
+FEISHU_APP_SECRET=your_app_secret
+FEISHU_APP_TOKEN=your_bitable_app_token
+DUIBIAO_TABLE_ID=tbl_your_account_table
+FEISHU_REFERENCE_TABLE_ID=tbl_your_case_table
+```
+
+飞书应用需要多维表格读写权限。请在同一个多维表格应用中准备“账号表”和“案例表”，将账号表主字段命名为 `序号`，案例表主字段命名为 `案例`。账号表的其他缺失字段会在首次执行 `record` 时补齐；案例表字段需按[配置说明](references/configuration.md)预先建立。
+
+### 3. 记录对标账号
+
+使用该账号下任意一条公开视频链接：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m article_monitor record "作品链接" --json
+```
+
+命令只解析并登记账号，不会扫描作品、下载媒体或调用 ASR。本地模式写入 `1-对标账号/accounts.md`；飞书模式只写飞书账号表，不会同时修改本地账号清单。
+
+### 4. 监控全部账号
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m article_monitor monitor --json
+```
+
+命令从当前模式的唯一账号源读取账号，依次扫描近期作品。达标作品生成在 `2-素材库/<账号名称>/`，这里是自动筛选后的待人工确认区，并不表示素材已经成为正式对标案例。媒体和音频中间文件在任务结束后清理。飞书模式会立即把这些候选素材同步到案例表；因此飞书案例表当前同时承担监控候选素材镜像的作用。同步失败时保留本地 Markdown，并在下轮监控时重试而不重复 ASR。
+
+CLI 使用经过校验的结构化筛选参数。例如，筛选点赞至少 500 且转赞比至少 1.5：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m article_monitor monitor --filter "like_count:gte:500" --filter "forward_like_ratio:gte:1.5" --json
+```
+
+支持字段为 `like_count`、`fav_count`、`comment_count`、`forward_count`、`forward_like_ratio`；支持运算符为 `gte`、`gt`、`lte`、`lt`、`eq`。显式“或”关系增加 `--filter-logic any`，自定义时间窗口使用 `--window-hours`。不传 `--filter` 时继续使用默认指标门槛。
+
+## 使用 Agent Skill
+
+仓库根目录就是 Skill，可通过 `npx skills` 安装到支持的 Agent：
+
+```powershell
+npx skills add pork1234cc/awesome-video-reference-monitor
+```
+
+也可以克隆仓库后作为本地 Skill 使用。Skill 不依赖特定 Agent 产品。
+
+在支持项目级 Agent Skill 的环境中打开本仓库后，可直接使用：
+
+```text
+$awesome-video-reference-monitor 记录对标 https://v.douyin.com/示例链接/
+```
+
+或：
+
+```text
+$awesome-video-reference-monitor 监控对标
+```
+
+也可以直接使用自然语言条件：
+
+```text
+监控点赞 500，转赞比至少 1.5
+```
+
+Skill 会先回显解释结果，再把中文条件转换成结构化 CLI 参数；含糊或混合“且/或”的表达会先要求澄清。
+
+Skill 只会调用当前项目的 `record` 或 `monitor` 命令。安装依赖、删除数据和创建定时任务仍需单独授权。
+
+## 本地数据目录
+
+```text
+articlemonitor/
+├─ 1-对标账号/
+│  └─ accounts.md                # 本地账号清单，首次登记时创建
+├─ 2-素材库/
+│  └─ <账号名称>/*.md            # 自动筛选达标、等待人工确认的候选素材
+├─ 3-对标案例/
+│  └─ 文案/*.md                  # 人工筛选后移动到这里
+└─ .tmp/                         # 临时媒体与 ASR 中间文件
+```
+
+### 素材库与对标案例的区别
+
+`2-素材库/` 相当于自动监控收件箱：只有满足本轮筛选条件的新视频才会进入，每条视频保存一个 Markdown，内容包括作者、标题、发布时间、互动数据、原始链接和口播逐字稿。视频、音频及其他处理中间文件不会长期保存在这里。
+
+人工确认值得长期保留的素材后，可把对应 Markdown 从 `2-素材库/` 移动到 `3-对标案例/文案/`。后续监控会同时检查两个目录以避免重复采集，并在文件当前所在位置刷新点赞、收藏、评论、转发和数据更新时间，不会把文件移回素材库。
+
+飞书模式下，候选素材进入本地素材库时就会同步到飞书案例表，无需等到人工移动。因此本地目录负责区分“候选素材”和“人工确认案例”，飞书案例表则保存自动筛选结果及其后续数据更新。
+
+账号清单、素材库和人工案例目录默认都被 Git 忽略，避免误提交业务数据。本地模式下不要修改 `accounts.md` 的格式标记、表头或账号 ID；飞书模式不会读取或写入该文件。如确需对素材 Markdown 做版本管理，应先单独调整 `.gitignore` 并检查敏感内容。
+
+## 目录结构
+
+```text
+awesome-video-reference-monitor/
+├─ SKILL.md                                 # 根级 Skill 入口
+├─ agents/openai.yaml                       # UI 元数据与调用策略
+├─ references/                              # 配置和监控数据契约
+├─ assets/env.example                       # 可安装的配置模板
+├─ scripts/
+│  ├─ bootstrap.ps1                         # Windows 初始化脚本
+│  ├─ article_monitor/                      # Python 运行源码
+│  └─ wechat-decrypt/                       # 视频号本地解密桥接
+├─ tests/                                   # 单元测试
+├─ 1-对标账号/
+├─ 2-素材库/
+├─ 3-对标案例/文案/
+└─ pyproject.toml
+```
+
+## 开发指南
+
+运行全部测试：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tests -v
+```
+
+运行 lint：
+
+```powershell
+.\.venv\Scripts\ruff.exe check scripts tests
+```
+
+当前测试集包含 99 项测试，其中 98 项通过，1 项真实 Chromium/WASM 密钥流向量测试默认跳过；该测试需要显式启用并准备好本机浏览器环境。
+
+## 使用边界
+
+- 仅支持抖音和微信视频号公开视频链接。
+- 飞书模式不会把媒体、音频或 `.env` 上传到飞书，只同步账号字段、案例元数据和清洗逐字稿。
+- `local` 与 `feishu` 是互斥账号源；切换模式不会自动迁移既有账号。
+- 不提供普通单链接文案采集、文案改写、BGM 提取、评分或互动率计算。
+- 不启动后台服务或定时任务；每次监控都必须由用户或 Agent 明确触发。
+- 不采集或写入播放数、`read_count`。
+- 真实运行依赖第三方 API、平台响应字段和本机媒体环境，首次使用前建议先用少量账号验收。
+
+## 更多文档
+
+- [配置说明](references/configuration.md)
+- [监控数据契约](references/data-contracts.md)
