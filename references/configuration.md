@@ -47,7 +47,7 @@ DASHSCOPE_ASR_ENABLE_ITN=false
 视频号新素材还要求：
 
 - Node.js 20+
-- `tools/wechat-decrypt/node_modules/` 已安装
+- `scripts/wechat-decrypt/node_modules/` 已安装
 - Playwright Chromium 已安装
 - Node 不在 `PATH` 时配置 `WECHAT_DECRYPT_NODE_PATH`
 

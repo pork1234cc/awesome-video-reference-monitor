@@ -157,7 +157,7 @@ Skill 只会调用当前项目的 `record` 或 `monitor` 命令。安装依赖�
 ## 本地数据目录
 
 ```text
-articlemonitor/
+awesome-video-reference-monitor/
 ├─ 1-对标账号/
 │  └─ accounts.md                # 本地账号清单，首次登记时创建
 ├─ 2-素材库/
