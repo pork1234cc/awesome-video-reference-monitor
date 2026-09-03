@@ -144,13 +144,13 @@ $awesome-video-reference-monitor 记录对标 https://v.douyin.com/示例链接/
 $awesome-video-reference-monitor 监控对标
 ```
 
-也可以直接使用自然语言条件：
+通过支持 Agent Skills 的 Agent（如 Codex、Claude 或 HERMES）调用时，也可以直接使用自然语言条件；HERMES 不是必需依赖：
 
 ```text
 监控点赞 500，转赞比至少 1.5
 ```
 
-Skill 会先回显解释结果，再把中文条件转换成结构化 CLI 参数；含糊或混合“且/或”的表达会先要求澄清。
+自然语言由 Agent 根据 `SKILL.md` 转换成结构化 CLI 参数；CLI 本身不解析自然语言。Skill 会先回显本轮条件，含糊或混合“且/或”的表达会先要求澄清。
 
 Skill 只会调用当前项目的 `record` 或 `monitor` 命令。安装依赖、删除数据和创建定时任务仍需单独授权。
 
