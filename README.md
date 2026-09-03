@@ -38,6 +38,27 @@
 - TikHub API Key
 - DashScope Qwen ASR API Key 和 Workspace ID
 
+“记录对标”不需要 FFmpeg；“监控对标”在处理新增达标素材、提取音频和切分长音频时需要 FFmpeg 与 FFprobe。初始化脚本不会自动安装 FFmpeg。
+
+#### 安装 FFmpeg（Windows）
+
+- 官方下载入口：[Download FFmpeg](https://ffmpeg.org/download.html)
+- Windows 可执行文件：[gyan.dev builds](https://www.gyan.dev/ffmpeg/builds/)（FFmpeg 官方下载页列出的构建提供方）
+
+从 Windows 构建页面下载发行版压缩包并解压，例如放到 `C:\Tools\ffmpeg`。然后把 `C:\Tools\ffmpeg\bin` 加入系统 `PATH`，重新打开 PowerShell，并验证：
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+如果不想修改系统 `PATH`，可在项目根 `.env` 中配置可执行文件的绝对路径：
+
+```env
+FFMPEG_PATH=C:\Tools\ffmpeg\bin\ffmpeg.exe
+FFPROBE_PATH=C:\Tools\ffmpeg\bin\ffprobe.exe
+```
+
 克隆项目：
 
 ```powershell
@@ -74,6 +95,24 @@ TIKHUB_API_KEY=your_tikhub_api_key
 DASHSCOPE_API_KEY=sk-your_dashscope_api_key
 DASHSCOPE_ASR_WORKSPACE_ID=your_workspace_id
 ```
+
+变量用途：
+
+- `TIKHUB_API_KEY`：解析账号并读取近期作品时使用。
+- `DASHSCOPE_API_KEY`：调用阿里云百炼 Qwen-ASR 的鉴权密钥。
+- `DASHSCOPE_ASR_WORKSPACE_ID`：阿里云百炼业务空间的唯一 ID。项目会用它组成 Qwen-ASR 的业务空间专属请求地址；它不是 API Key，也不是应用 APP ID。
+
+“记录对标”只需要 `TIKHUB_API_KEY`，不会调用 ASR；后两项在“监控对标”处理新增达标素材并生成逐字稿时才需要。
+
+#### 获取 DashScope API Key 和 Workspace ID
+
+1. 登录[阿里云百炼控制台](https://bailian.console.aliyun.com/?tab=model)，选择项目默认使用的“华北 2（北京）”地域。
+2. 按[官方 API Key 获取说明](https://help.aliyun.com/zh/model-studio/get-api-key)进入密钥管理。使用已有 Key，或创建新 Key；创建时选择它所属的账号和业务空间，然后复制到 `DASHSCOPE_API_KEY`。
+3. 按[官方 Workspace ID 获取说明](https://help.aliyun.com/zh/model-studio/obtain-the-app-id-and-workspace-id)，在百炼控制台右上角查看当前业务空间 ID，或在业务空间管理页面的 `Workspace ID` 列复制目标值，填写到 `DASHSCOPE_ASR_WORKSPACE_ID`。
+4. 确认 API Key 与 Workspace ID 属于同一业务空间，并且该空间有权调用 `qwen3-asr-flash`。北京与其他地域的 Key、Workspace ID 和服务地址不要混用。
+5. 将两个值写入项目根 `.env`，保留原值的完整前缀，不要加示例中的占位符。
+
+本项目默认通过 Qwen-ASR 的北京业务空间专属地址调用 `qwen3-asr-flash`，具体接口格式见[官方 Qwen-ASR API 参考](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference)。不要把真实 API Key 发到聊天、Issue、日志或截图中；`.env` 也不要提交到 Git。
 
 完整配置及 FFmpeg、Node.js 自定义路径见 [assets/env.example](assets/env.example)。`.env` 已被 Git 忽略，不要提交或公开其中的密钥。
 
@@ -152,6 +191,14 @@ $awesome-video-reference-monitor 监控对标
 
 自然语言由 Agent 根据 `SKILL.md` 转换成结构化 CLI 参数；CLI 本身不解析自然语言。Skill 会先回显本轮条件，含糊或混合“且/或”的表达会先要求澄清。
 
+也可以在同一句话中为本次任务选择飞书模式：
+
+```text
+使用飞书模式监控对标，筛选点赞至少 500、转赞比至少 1.5 的视频
+```
+
+Agent 会把“飞书模式”映射为本次命令进程的 `ARTICLEMONITOR_STORAGE_BACKEND=feishu`，不会自动修改 `.env`。飞书应用凭据和数据表参数仍需提前配置；配置不完整时停止执行，不会退回本地模式。直接使用 CLI 时仍需通过环境变量或 `.env` 选择模式。
+
 Skill 只会调用当前项目的 `record` 或 `monitor` 命令。安装依赖、删除数据和创建定时任务仍需单独授权。
 
 ## 本地数据目录
@@ -185,6 +232,7 @@ awesome-video-reference-monitor/
 ├─ agents/openai.yaml                       # UI 元数据与调用策略
 ├─ references/                              # 配置和监控数据契约
 ├─ assets/env.example                       # 可安装的配置模板
+├─ LICENSE                                  # MIT 许可证
 ├─ scripts/
 │  ├─ bootstrap.ps1                         # Windows 初始化脚本
 │  ├─ article_monitor/                      # Python 运行源码
@@ -226,3 +274,7 @@ awesome-video-reference-monitor/
 
 - [配置说明](references/configuration.md)
 - [监控数据契约](references/data-contracts.md)
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE)。
