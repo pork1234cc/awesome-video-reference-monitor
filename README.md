@@ -72,7 +72,7 @@ Set-Location awesome-video-reference-monitor
 PowerShell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 ```
 
-脚本会创建 `.venv`、以 editable 模式安装 Python 项目、安装视频号解密所需的 Node.js 依赖，并默认安装 Playwright Chromium。
+脚本会创建或修复 `.venv`、以 editable 模式安装 Python 项目、校验 Node.js 20+、通过 Windows `npm.cmd`/`npx.cmd` 安装视频号解密依赖，并默认安装 Playwright Chromium。脚本还会检查 FFmpeg、FFprobe 和配置占位值；缺少媒体工具时会提示，但不会阻止只需要 TikHub 的“记录对标”。
 
 如暂时不需要安装浏览器，可执行：
 
@@ -103,6 +103,28 @@ DASHSCOPE_ASR_WORKSPACE_ID=your_workspace_id
 - `DASHSCOPE_ASR_WORKSPACE_ID`：阿里云百炼业务空间的唯一 ID。项目会用它组成 Qwen-ASR 的业务空间专属请求地址；它不是 API Key，也不是应用 APP ID。
 
 “记录对标”只需要 `TIKHUB_API_KEY`，不会调用 ASR；后两项在“监控对标”处理新增达标素材并生成逐字稿时才需要。
+
+#### 获取 TikHub API Key
+
+- TikHub 官网：[https://www.tikhub.io](https://www.tikhub.io)
+- API Key 控制台：[https://user.tikhub.io/dashboard/api](https://user.tikhub.io/dashboard/api)
+- API 文档：[https://docs.tikhub.io](https://docs.tikhub.io)
+
+1. 在 TikHub 官网注册并登录，完成邮箱验证。
+2. 打开 API Key 控制台，在用户中心创建 API Key；创建后的密钥只展示一次，请立即安全保存。
+3. 将密钥写入项目根 `.env`：
+
+   ```env
+   TIKHUB_API_KEY=你的真实_API_Key
+   ```
+
+4. 中国大陆用户保持默认接口地址 `https://api.tikhub.dev`；中国大陆以外用户可在 `.env` 中设置：
+
+   ```env
+   TIKHUB_BASE_URL=https://api.tikhub.io
+   ```
+
+TikHub 是独立第三方服务。不要把真实 API Key 提交到 Git、粘贴到 Issue 或写入公开日志。
 
 #### 获取 DashScope API Key 和 Workspace ID
 

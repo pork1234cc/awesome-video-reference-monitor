@@ -28,6 +28,9 @@ class SkillTests(unittest.TestCase):
         cls.contracts = (SKILL_ROOT / "references" / "data-contracts.md").read_text(
             encoding="utf-8"
         )
+        cls.bootstrap = (SKILL_ROOT / "scripts" / "bootstrap.ps1").read_text(
+            encoding="utf-8"
+        )
 
     def test_description_routes_two_commands_and_excludes_collection(self) -> None:
         """描述应覆盖两个触发语并排除普通单链接采集。"""
@@ -71,6 +74,20 @@ class SkillTests(unittest.TestCase):
         for relative_path in required_files:
             with self.subTest(relative_path=relative_path):
                 self.assertTrue((PROJECT_ROOT / relative_path).is_file())
+
+    def test_bootstrap_uses_windows_node_command_shims(self) -> None:
+        """Windows 初始化必须绕过可能错误解析参数的 npm.ps1。"""
+
+        self.assertIn("Get-Command npm.cmd", self.bootstrap)
+        self.assertIn("Get-Command npx.cmd", self.bootstrap)
+        self.assertNotIn("& npm install", self.bootstrap)
+        self.assertNotIn("& npx playwright", self.bootstrap)
+        self.assertEqual(
+            self.bootstrap.count(
+                "Copy-Item -LiteralPath $configTemplate -Destination $configPath"
+            ),
+            1,
+        )
 
     def test_maps_natural_language_filters_to_structured_cli(self) -> None:
         """Skill 应把中文条件映射为可校验参数而非交给核心程序猜测。"""
