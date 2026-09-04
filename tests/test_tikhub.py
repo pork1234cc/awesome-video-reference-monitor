@@ -286,6 +286,85 @@ class TikHubMonitorTests(unittest.TestCase):
             urlopen.call_args.args[0].full_url,
         )
 
+    def test_client_fetches_douyin_post_directly_from_share_link(self) -> None:
+        """手动提取应直接把抖音详情归一化为单条作品。"""
+
+        client = TikHubClient(
+            MonitorConfig(tikhub_api_key="token", tikhub_base_url="https://api.tikhub.dev")
+        )
+        payload = {
+            "code": 200,
+            "data": {
+                "aweme_detail": {
+                    "aweme_id": "123",
+                    "desc": "手动提取测试",
+                    "author": {"nickname": "抖音作者", "unique_id": "dy"},
+                    "statistics": {"digg_count": 10},
+                    "video": {
+                        "play_addr_h264": {"url_list": ["https://cdn/manual.mp4"]}
+                    },
+                }
+            },
+        }
+        with patch(
+            "article_monitor.tikhub.urllib.request.urlopen",
+            return_value=FakeResponse(payload),
+        ) as urlopen:
+            post = client.fetch_post("https://v.douyin.com/manual/")
+
+        self.assertEqual(post.case_id, "douyin_123")
+        self.assertEqual(post.title, "手动提取测试")
+        self.assertEqual(post.nickname, "抖音作者")
+        self.assertEqual(post.media_url, "https://cdn/manual.mp4")
+        self.assertEqual(urlopen.call_args.args[0].method, "GET")
+
+    def test_client_fetches_wechat_post_with_paired_media_key(self) -> None:
+        """手动提取视频号时必须保留同次详情中的媒体地址和密钥。"""
+
+        client = TikHubClient(
+            MonitorConfig(tikhub_api_key="token", tikhub_base_url="https://api.tikhub.dev")
+        )
+        payload = {
+            "code": 200,
+            "data": {
+                "id": "14941130915890399732",
+                "object_nonce_id": "14941130915890399733",
+                "nickname": "视频号作者",
+                "username": "v2_manual@finder",
+                "title": "视频号手动提取测试",
+                "media": {
+                    "url": "https://finder/manual.mp4",
+                    "url_token": "?token=one",
+                    "decode_key": "987654321",
+                },
+            },
+        }
+        with patch(
+            "article_monitor.tikhub.urllib.request.urlopen",
+            return_value=FakeResponse(payload),
+        ) as urlopen:
+            post = client.fetch_post("https://weixin.qq.com/sph/manual")
+
+        self.assertEqual(post.case_id, "wechat_channels_14941130915890399732")
+        self.assertEqual(post.media_url, "https://finder/manual.mp4?token=one")
+        self.assertEqual(post.decode_key, "987654321")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(
+            json.loads(request.data.decode("utf-8")),
+            {"share_url": "https://weixin.qq.com/sph/manual", "raw": False},
+        )
+
+    def test_client_rejects_unsupported_manual_extract_link(self) -> None:
+        """手动提取不得把未知平台链接发送给 TikHub。"""
+
+        client = TikHubClient(
+            MonitorConfig(tikhub_api_key="token", tikhub_base_url="https://api.tikhub.dev")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "抖音或视频号"):
+            client.fetch_post("https://example.com/video")
+
 
 if __name__ == "__main__":
     unittest.main()

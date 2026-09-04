@@ -120,6 +120,55 @@ class ReferenceMonitor:
             "account": account_to_dict(account),
         }
 
+    def extract_post(self, share_url: str) -> dict[str, Any]:
+        """手动提取单条作品文案，并按案例 ID 避免重复 ASR。
+
+        参数：
+            share_url: 抖音或微信视频号的公开作品链接。
+        返回：
+            包含新增或已存在状态、案例 ID 和 Markdown 路径的结果。
+        异常：
+            RuntimeError: 作品不是视频，或媒体、解密、ASR 处理失败。
+        """
+
+        post = self.client.fetch_post(share_url)
+        case_index = build_case_index(
+            self.output_dir / "文案",
+            self.assets_root,
+        )
+        existing_path = case_index.get(post.case_id)
+        if existing_path is not None:
+            feishu_result = (
+                self.case_sync_func(existing_path)
+                if self.sync_to_feishu
+                else {"record_id": "", "action": "skipped"}
+            )
+            return {
+                "ok": True,
+                "action": "existing",
+                "platform": post.platform,
+                "source_url": share_url,
+                "markdown": str(existing_path.resolve()),
+                "case_id": post.case_id,
+                "feishu_record_id": feishu_result["record_id"],
+                "feishu_action": feishu_result["action"],
+                "warnings": [],
+            }
+        if not post.is_video:
+            raise RuntimeError("手动提取只支持视频作品。")
+        ready_post = self._ensure_media(post)
+        result = dict(
+            self.collect_func(
+                ready_post.to_profile(),
+                share_url,
+                output_dir=self.output_dir,
+                markdown_dir=self.output_dir / "文案",
+                sync_to_feishu=self.sync_to_feishu,
+            )
+        )
+        result["action"] = "create"
+        return result
+
     def monitor_all(self) -> dict[str, Any]:
         """读取全部账号，隔离单账号失败并返回整轮汇总。"""
 

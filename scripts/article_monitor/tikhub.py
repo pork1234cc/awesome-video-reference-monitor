@@ -129,6 +129,51 @@ class TikHubClient:
             return normalize_wechat_account(response_data(payload))
         raise RuntimeError("暂不支持该链接平台，请输入抖音或视频号公开视频链接。")
 
+    def fetch_post(self, share_url: str) -> MonitorPost:
+        """通过作品分享链接读取单条视频详情并归一化。
+
+        参数：
+            share_url: 抖音或微信视频号的公开作品链接。
+        返回：
+            包含媒体地址、作品标识和作者信息的统一作品对象。
+        异常：
+            RuntimeError: 链接平台不支持，或详情缺少稳定作品 ID。
+        """
+
+        platform = detect_platform(share_url)
+        if platform == "douyin":
+            payload = self._request(
+                "GET",
+                DOUYIN_DETAIL_PATH,
+                query={"share_url": share_url},
+            )
+            data = response_data(payload)
+            item = _first_dict(data, "aweme_detail", "awemeDetail", "item") or data
+            account = MonitorAccount("douyin", "", "", "")
+            post = normalize_douyin_post(item, account)
+        elif platform == "wechat_channels":
+            payload = self._request(
+                "POST",
+                WECHAT_DETAIL_PATH,
+                body={"share_url": share_url, "raw": False},
+            )
+            data = response_data(payload)
+            username = _text(data.get("username"))
+            account = MonitorAccount(
+                "wechat_channels",
+                _text(data.get("nickname")),
+                username,
+                username,
+            )
+            post = normalize_wechat_post(data, account)
+        else:
+            raise RuntimeError(
+                "暂不支持该链接平台，请输入抖音或视频号公开视频链接。"
+            )
+        if not post.video_id:
+            raise RuntimeError("TikHub 作品详情缺少稳定作品 ID。")
+        return post
+
     def fetch_posts(
         self,
         account: MonitorAccount,

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "articlemonitor"
-version = "0.1.0"
-description = "独立的抖音与微信视频号对标账号登记和素材监控工具"
+version = "0.2.0"
+description = "抖音与微信视频号对标账号登记、素材监控和手动文案提取工具"
 requires-python = ">=3.10"
 dependencies = []
 

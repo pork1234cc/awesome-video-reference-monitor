@@ -1,6 +1,6 @@
 # awesome-video-reference-monitor
 
-一个可独立安装的 Agent Skill，用于登记和监控抖音、微信视频号对标账号，并提取达标作品的口播文案。仓库根目录本身就是 `awesome-video-reference-monitor` Skill。
+一个可独立安装的 Agent Skill，用于登记和监控抖音、微信视频号对标账号，也可从单条公开视频手动提取口播文案。仓库根目录本身就是 `awesome-video-reference-monitor` Skill。
 
 项目默认使用纯本地 Markdown，也可切换到飞书多维表格协作模式。两种模式不会同时维护账号清单；素材 Markdown 始终保存在当前项目中。
 
@@ -11,10 +11,11 @@
 - 串行监控全部账号最近 72 小时内发布的视频作品。
 - 支持按点赞、收藏、评论、转发和转赞比筛选新素材，并可通过 Agent 使用自然语言描述条件。
 - 下载媒体、提取音频，并通过 DashScope Qwen ASR 生成口播逐字稿。
+- 根据单条作品链接手动提取文案，跳过账号登记、监控窗口和传播指标筛选。
 - 将作品信息、互动数据和逐字稿保存为本地 Markdown。
 - 飞书模式下把新素材和已有案例数据幂等同步到用户自己的案例表。
 - 跨素材库和人工案例目录去重；已有素材只刷新点赞、收藏、评论、转发和更新时间。
-- 提供 `记录对标` 与 `监控对标` 两种 Agent Skill 触发方式。
+- 提供 `记录对标`、`监控对标` 与 `手动提取文案` 三种 Agent Skill 触发方式。
 
 默认筛选规则：
 
@@ -38,7 +39,7 @@
 - TikHub API Key
 - DashScope Qwen ASR API Key 和 Workspace ID
 
-“记录对标”不需要 FFmpeg；“监控对标”在处理新增达标素材、提取音频和切分长音频时需要 FFmpeg 与 FFprobe。初始化脚本不会自动安装 FFmpeg。
+“记录对标”不需要 FFmpeg；“监控对标”处理新增达标素材、或“手动提取文案”处理新作品时，需要 FFmpeg 与 FFprobe。命中已有案例的手动提取不会重复调用媒体工具。初始化脚本不会自动安装 FFmpeg。
 
 #### 安装 FFmpeg（Windows）
 
@@ -102,7 +103,7 @@ DASHSCOPE_ASR_WORKSPACE_ID=your_workspace_id
 - `DASHSCOPE_API_KEY`：调用阿里云百炼 Qwen-ASR 的鉴权密钥。
 - `DASHSCOPE_ASR_WORKSPACE_ID`：阿里云百炼业务空间的唯一 ID。项目会用它组成 Qwen-ASR 的业务空间专属请求地址；它不是 API Key，也不是应用 APP ID。
 
-“记录对标”只需要 `TIKHUB_API_KEY`，不会调用 ASR；后两项在“监控对标”处理新增达标素材并生成逐字稿时才需要。
+“记录对标”只需要 `TIKHUB_API_KEY`，不会调用 ASR；后两项在“监控对标”处理新增达标素材，或“手动提取文案”处理新作品并生成逐字稿时才需要。
 
 #### 获取 TikHub API Key
 
@@ -167,7 +168,17 @@ FEISHU_REFERENCE_TABLE_ID=tbl_your_case_table
 
 命令只解析并登记账号，不会扫描作品、下载媒体或调用 ASR。本地模式写入 `1-对标账号/accounts.md`；飞书模式只写飞书账号表，不会同时修改本地账号清单。
 
-### 4. 监控全部账号
+### 4. 手动提取单条文案
+
+提供唯一的抖音或微信视频号公开视频链接：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m article_monitor extract "作品链接" --json
+```
+
+命令不会登记账号、扫描账号作品或应用监控筛选。新作品直接生成到 `3-对标案例/文案/`；执行前会按案例 ID 递归检查素材库和案例库，已有作品直接返回原文件，不重复下载或调用 ASR。飞书模式会把已有或新增案例幂等同步到案例表，但不会访问账号表。
+
+### 5. 监控全部账号
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 -m article_monitor monitor --json
@@ -202,6 +213,12 @@ $awesome-video-reference-monitor 记录对标 https://v.douyin.com/示例链接/
 或：
 
 ```text
+$awesome-video-reference-monitor 手动提取文案 https://v.douyin.com/示例链接/
+```
+
+或：
+
+```text
 $awesome-video-reference-monitor 监控对标
 ```
 
@@ -221,7 +238,7 @@ $awesome-video-reference-monitor 监控对标
 
 Agent 会把“飞书模式”映射为本次命令进程的 `ARTICLEMONITOR_STORAGE_BACKEND=feishu`，不会自动修改 `.env`。飞书应用凭据和数据表参数仍需提前配置；配置不完整时停止执行，不会退回本地模式。直接使用 CLI 时仍需通过环境变量或 `.env` 选择模式。
 
-Skill 只会调用当前项目的 `record` 或 `monitor` 命令。安装依赖、删除数据和创建定时任务仍需单独授权。
+Skill 只会调用当前项目的 `record`、`extract` 或 `monitor` 命令。安装依赖、删除数据和创建定时任务仍需单独授权。
 
 ## 本地数据目录
 
@@ -232,7 +249,7 @@ awesome-video-reference-monitor/
 ├─ 2-素材库/
 │  └─ <账号名称>/*.md            # 自动筛选达标、等待人工确认的候选素材
 ├─ 3-对标案例/
-│  └─ 文案/*.md                  # 人工筛选后移动到这里
+│  └─ 文案/*.md                  # 人工筛选案例及手动提取文案
 └─ .tmp/                         # 临时媒体与 ASR 中间文件
 ```
 
@@ -241,6 +258,8 @@ awesome-video-reference-monitor/
 `2-素材库/` 相当于自动监控收件箱：只有满足本轮筛选条件的新视频才会进入，每条视频保存一个 Markdown，内容包括作者、标题、发布时间、互动数据、原始链接和口播逐字稿。视频、音频及其他处理中间文件不会长期保存在这里。
 
 人工确认值得长期保留的素材后，可把对应 Markdown 从 `2-素材库/` 移动到 `3-对标案例/文案/`。后续监控会同时检查两个目录以避免重复采集，并在文件当前所在位置刷新点赞、收藏、评论、转发和数据更新时间，不会把文件移回素材库。
+
+手动提取的新作品直接进入 `3-对标案例/文案/`，因为用户已经显式选定了该作品；如果相同案例 ID 已存在于任一目录，则返回现有文件而不重复 ASR。
 
 飞书模式下，候选素材进入本地素材库时就会同步到飞书案例表，无需等到人工移动。因此本地目录负责区分“候选素材”和“人工确认案例”，飞书案例表则保存自动筛选结果及其后续数据更新。
 
@@ -280,14 +299,14 @@ awesome-video-reference-monitor/
 .\.venv\Scripts\ruff.exe check scripts tests
 ```
 
-当前测试集包含 99 项测试，其中 98 项通过，1 项真实 Chromium/WASM 密钥流向量测试默认跳过；该测试需要显式启用并准备好本机浏览器环境。
+当前测试集包含 110 项测试，其中 109 项通过，1 项真实 Chromium/WASM 密钥流向量测试默认跳过；该测试需要显式启用并准备好本机浏览器环境。
 
 ## 使用边界
 
 - 仅支持抖音和微信视频号公开视频链接。
 - 飞书模式不会把媒体、音频或 `.env` 上传到飞书，只同步账号字段、案例元数据和清洗逐字稿。
 - `local` 与 `feishu` 是互斥账号源；切换模式不会自动迁移既有账号。
-- 不提供普通单链接文案采集、文案改写、BGM 提取、评分或互动率计算。
+- 手动提取一次只接受一条公开视频链接，不提供文案改写、BGM 提取、评分或互动率计算。
 - 不启动后台服务或定时任务；每次监控都必须由用户或 Agent 明确触发。
 - 不采集或写入播放数、`read_count`。
 - 真实运行依赖第三方 API、平台响应字段和本机媒体环境，首次使用前建议先用少量账号验收。
@@ -295,7 +314,7 @@ awesome-video-reference-monitor/
 ## 更多文档
 
 - [配置说明](references/configuration.md)
-- [监控数据契约](references/data-contracts.md)
+- [数据契约](references/data-contracts.md)
 
 ## 许可证
 

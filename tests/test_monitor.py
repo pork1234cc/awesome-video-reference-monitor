@@ -105,6 +105,13 @@ class FakeClient:
             raise RuntimeError("详情缺失")
         return self.detail_post
 
+    def fetch_post(self, _share_url: str) -> MonitorPost:
+        """返回手动提取入口使用的单条详情作品。"""
+
+        if self.detail_post is None:
+            raise RuntimeError("详情缺失")
+        return self.detail_post
+
 
 class FakeCollector:
     """模拟共享采集核心并真实写入测试 Markdown。"""
@@ -702,6 +709,102 @@ class MonitorWorkflowTests(unittest.TestCase):
         self.assertEqual(client.calls, [])
         self.assertEqual(collector.calls, 0)
 
+    def test_manual_extract_collects_single_post_into_case_directory(self) -> None:
+        """手动提取应绕过账号清单和监控筛选，直接保存正式案例。"""
+
+        client = FakeClient()
+        client.detail_post = make_post("manual", 1000)
+        collector = Mock(
+            return_value={
+                "ok": True,
+                "markdown": "手动案例.md",
+                "case_id": "douyin_manual",
+            }
+        )
+        with tempfile.TemporaryDirectory(dir=temporary_root()) as temp_value:
+            output_dir = Path(temp_value) / "3-对标案例"
+            result = ReferenceMonitor(
+                client,
+                output_dir,
+                collect_func=collector,
+            ).extract_post("https://v.douyin.com/manual/")
+
+        self.assertEqual(result["action"], "create")
+        self.assertEqual(result["case_id"], "douyin_manual")
+        collector.assert_called_once()
+        _, source_url = collector.call_args.args
+        self.assertEqual(source_url, "https://v.douyin.com/manual/")
+        self.assertEqual(
+            collector.call_args.kwargs["markdown_dir"],
+            output_dir / "文案",
+        )
+        self.assertFalse(collector.call_args.kwargs["sync_to_feishu"])
+
+    def test_manual_extract_reuses_existing_case_without_asr(self) -> None:
+        """素材库或案例库已有相同作品时不得重复下载和调用 ASR。"""
+
+        client = FakeClient()
+        post = make_post("existing", 1000)
+        client.detail_post = post
+        collector = Mock()
+        with tempfile.TemporaryDirectory(dir=temporary_root()) as temp_value:
+            root = Path(temp_value)
+            existing_path = root / "2-素材库" / "作者" / "已有素材.md"
+            existing_path.parent.mkdir(parents=True)
+            existing_path.write_text(
+                f"| 案例 ID | {post.case_id} |\n",
+                encoding="utf-8",
+            )
+            result = ReferenceMonitor(
+                client,
+                root / "3-对标案例",
+                collect_func=collector,
+            ).extract_post("https://v.douyin.com/existing/")
+
+        self.assertEqual(result["action"], "existing")
+        self.assertEqual(Path(result["markdown"]), existing_path.resolve())
+        collector.assert_not_called()
+
+    def test_manual_extract_respects_feishu_storage_mode(self) -> None:
+        """飞书模式下的新手动案例应显式启用案例表同步。"""
+
+        client = FakeClient()
+        client.detail_post = make_post("manual", 1000)
+        collector = Mock(
+            return_value={
+                "ok": True,
+                "markdown": "手动案例.md",
+                "case_id": "douyin_manual",
+            }
+        )
+        with tempfile.TemporaryDirectory(dir=temporary_root()) as temp_value:
+            result = ReferenceMonitor(
+                client,
+                Path(temp_value) / "3-对标案例",
+                collect_func=collector,
+                sync_to_feishu=True,
+            ).extract_post("https://v.douyin.com/manual/")
+
+        self.assertEqual(result["action"], "create")
+        self.assertTrue(collector.call_args.kwargs["sync_to_feishu"])
+
+    def test_manual_extract_rejects_non_video_post(self) -> None:
+        """手动提取遇到图文等非视频作品时应在媒体处理前停止。"""
+
+        client = FakeClient()
+        client.detail_post = make_post("note", 1, is_video=False, media_url="")
+        collector = Mock()
+        with tempfile.TemporaryDirectory(dir=temporary_root()) as temp_value:
+            monitor = ReferenceMonitor(
+                client,
+                Path(temp_value) / "3-对标案例",
+                collect_func=collector,
+            )
+            with self.assertRaisesRegex(RuntimeError, "只支持视频作品"):
+                monitor.extract_post("https://www.douyin.com/note/123")
+
+        collector.assert_not_called()
+
     def test_monitor_all_reads_accounts_from_local_store(self) -> None:
         """监控命令只能从本地账号清单读取账号。"""
 
@@ -789,12 +892,16 @@ class MonitorWorkflowTests(unittest.TestCase):
 
         self.assertEqual(second_stem, f"{title[:20]}_222222")
 
-    def test_cli_exposes_record_and_monitor_commands(self) -> None:
-        """命令行应暴露账号登记和全账号监控入口。"""
+    def test_cli_exposes_record_monitor_and_extract_commands(self) -> None:
+        """命令行应暴露账号登记、全账号监控和手动提取入口。"""
 
         parser = build_parser()
         self.assertEqual(parser.parse_args(["record", "https://v.douyin.com/a/"]).command, "record")
         self.assertEqual(parser.parse_args(["monitor"]).command, "monitor")
+        self.assertEqual(
+            parser.parse_args(["extract", "https://v.douyin.com/a/"]).command,
+            "extract",
+        )
         self.assertFalse(hasattr(parser.parse_args(["monitor", "--json"]), "output_dir"))
 
     def test_case_index_reads_stable_names_and_material_metadata(self) -> None:

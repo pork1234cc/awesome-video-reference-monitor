@@ -23,15 +23,18 @@ except (AttributeError, OSError):
 class CliTests(unittest.TestCase):
     """验证独立 CLI 不泄漏旧项目能力或路径。"""
 
-    def test_parser_only_exposes_record_and_monitor(self) -> None:
-        """命令行只能登记或监控，不能接受外部输出目录。"""
+    def test_parser_exposes_record_monitor_and_extract(self) -> None:
+        """命令行应暴露登记、监控和手动提取，且不能接受外部输出目录。"""
 
         parser = build_parser()
         record = parser.parse_args(["record", "https://v.douyin.com/test/", "--json"])
         monitor = parser.parse_args(["monitor"])
+        extract = parser.parse_args(["extract", "https://v.douyin.com/test/"])
         self.assertEqual(record.command, "record")
         self.assertEqual(monitor.command, "monitor")
+        self.assertEqual(extract.command, "extract")
         self.assertFalse(hasattr(record, "output_dir"))
+        self.assertFalse(hasattr(extract, "output_dir"))
 
     def test_rejects_env_file_outside_project(self) -> None:
         """显式 dotenv 也必须位于独立项目根目录内。"""
@@ -189,6 +192,85 @@ class CliTests(unittest.TestCase):
         monitor_filter = monitor_class.call_args.kwargs["monitor_filter"]
         self.assertTrue(monitor_filter.to_dict()["uses_default_metrics"])
         monitor_class.return_value.monitor_all.assert_called_once_with()
+
+    @patch("article_monitor.cli.ensure_project_directories")
+    @patch(
+        "article_monitor.cli.monitor_output_root",
+        return_value=Path("3-对标案例"),
+    )
+    @patch("article_monitor.cli.load_config")
+    @patch("article_monitor.cli.merged_environment", return_value={"配置": "值"})
+    @patch("article_monitor.cli.LocalAccountStore")
+    @patch("article_monitor.cli.TikHubClient")
+    @patch("article_monitor.cli.ReferenceMonitor")
+    def test_extract_skips_account_store_and_collects_single_post(
+        self,
+        monitor_class: Mock,
+        _tikhub_class: Mock,
+        account_store_class: Mock,
+        _merged_environment: Mock,
+        load_config_mock: Mock,
+        _output_root: Mock,
+        _ensure_directories: Mock,
+    ) -> None:
+        """手动提取不应登记账号或扫描账号列表。"""
+
+        args = build_parser().parse_args(
+            ["extract", "https://v.douyin.com/manual/", "--json"]
+        )
+        load_config_mock.return_value.storage_backend = "local"
+        monitor_class.return_value.extract_post.return_value = {
+            "ok": True,
+            "action": "create",
+            "markdown": "3-对标案例/文案/测试.md",
+        }
+
+        payload = run_command(args)
+
+        self.assertTrue(payload["ok"])
+        account_store_class.assert_not_called()
+        monitor_class.return_value.extract_post.assert_called_once_with(
+            "https://v.douyin.com/manual/"
+        )
+        monitor_class.return_value.record_account.assert_not_called()
+        monitor_class.return_value.monitor_all.assert_not_called()
+
+    def test_feishu_extract_validates_case_table_without_account_table(self) -> None:
+        """飞书手动提取只校验案例表，不应初始化账号表。"""
+
+        args = build_parser().parse_args(
+            ["extract", "https://weixin.qq.com/sph/manual", "--json"]
+        )
+        values = {"ARTICLEMONITOR_STORAGE_BACKEND": "feishu"}
+        config = Mock(storage_backend="feishu")
+        case_client = Mock()
+        with (
+            patch("article_monitor.cli.ensure_project_directories"),
+            patch("article_monitor.cli.merged_environment", return_value=values),
+            patch("article_monitor.cli.load_config", return_value=config),
+            patch("article_monitor.cli.TikHubClient"),
+            patch("article_monitor.cli.LocalAccountStore") as local_store_class,
+            patch(
+                "article_monitor.cli.account_bitable_client_from_env"
+            ) as account_store_factory,
+            patch(
+                "article_monitor.cli.reference_bitable_client_from_env",
+                return_value=case_client,
+            ),
+            patch("article_monitor.cli.ReferenceMonitor") as monitor_class,
+        ):
+            monitor_class.return_value.extract_post.return_value = {
+                "ok": True,
+                "action": "create",
+            }
+
+            payload = run_command(args)
+
+        self.assertTrue(payload["ok"])
+        local_store_class.assert_not_called()
+        account_store_factory.assert_not_called()
+        case_client.validate_schema.assert_called_once_with()
+        self.assertTrue(monitor_class.call_args.kwargs["sync_to_feishu"])
 
     def test_feishu_mode_uses_feishu_account_store_and_enables_case_sync(self) -> None:
         """飞书模式以账号表为唯一账号源，并显式开启案例表同步。"""

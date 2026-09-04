@@ -32,12 +32,12 @@ class SkillTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-    def test_description_routes_two_commands_and_excludes_collection(self) -> None:
-        """描述应覆盖两个触发语并排除普通单链接采集。"""
+    def test_description_routes_three_supported_commands(self) -> None:
+        """描述应覆盖登记、监控和手动提取三个触发语。"""
 
         frontmatter = self.skill.split("---", 2)[1]
         self.assertIn("name: awesome-video-reference-monitor", frontmatter)
-        for marker in ("记录对标", "监控对标", "不用于普通单链接“提取文案”"):
+        for marker in ("记录对标", "监控对标", "手动提取文案"):
             self.assertIn(marker, frontmatter)
 
     def test_uses_only_standalone_cli(self) -> None:
@@ -45,6 +45,7 @@ class SkillTests(unittest.TestCase):
 
         self.assertIn("-m article_monitor record", self.skill)
         self.assertIn("-m article_monitor monitor", self.skill)
+        self.assertIn("-m article_monitor extract", self.skill)
         self.assertIn("scripts/article_monitor/", self.skill)
         self.assertIn("不依赖特定 Agent 产品", self.skill)
         for forbidden in (
@@ -55,6 +56,18 @@ class SkillTests(unittest.TestCase):
             "src/article_monitor/",
         ):
             self.assertNotIn(forbidden, self.skill)
+
+    def test_manual_extract_documents_output_and_deduplication(self) -> None:
+        """手动提取应固定写入案例目录，并明确跨目录去重。"""
+
+        for marker in (
+            "3-对标案例/文案/",
+            "2-素材库/",
+            "案例 ID",
+            "不下载媒体、不调用 ASR",
+            "不登记账号",
+        ):
+            self.assertIn(marker, self.skill)
 
     def test_distribution_contains_all_runtime_resources(self) -> None:
         """根级 Skill 必须自包含安装后运行所需的全部资源。"""

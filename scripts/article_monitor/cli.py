@@ -34,16 +34,20 @@ def configure_console_encoding() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """建立只包含账号登记和监控的命令解析器。"""
+    """建立账号登记、监控和单条文案提取的命令解析器。"""
 
     parser = argparse.ArgumentParser(
-        description="登记并监控抖音或微信视频号对标账号。"
+        description="登记、监控对标账号，或手动提取单条视频文案。"
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    record = subparsers.add_parser("record", help="只把对标账号登记到本地账号清单")
+    record = subparsers.add_parser("record", help="只把对标账号登记到当前账号源")
     record.add_argument("link", help="该账号下任意一条抖音或微信视频号作品链接")
     add_common_options(record)
+
+    extract = subparsers.add_parser("extract", help="手动提取单条视频的口播文案")
+    extract.add_argument("link", help="抖音或微信视频号的公开视频链接")
+    add_common_options(extract)
 
     monitor = subparsers.add_parser("monitor", help="监控全部已登记对标账号")
     add_common_options(monitor)
@@ -121,7 +125,7 @@ def build_monitor_filter(args: argparse.Namespace) -> MonitorFilter:
 
 
 def run_command(args: argparse.Namespace) -> dict[str, Any]:
-    """执行账号登记或监控并返回可序列化结果。"""
+    """执行账号登记、监控或手动提取并返回可序列化结果。"""
 
     monitor_filter = (
         build_monitor_filter(args) if args.command == "monitor" else None
@@ -132,6 +136,17 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
     apply_environment(values)
     config = load_config(env_path)
     use_feishu = config.storage_backend == "feishu"
+    client = TikHubClient(config)
+    if args.command == "extract":
+        if use_feishu:
+            reference_bitable_client_from_env(values).validate_schema()
+        monitor = ReferenceMonitor(
+            client,
+            monitor_output_root(),
+            sync_to_feishu=use_feishu,
+        )
+        return monitor.extract_post(args.link)
+
     account_store = (
         account_bitable_client_from_env(values)
         if use_feishu
@@ -146,7 +161,7 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
     if monitor_filter is not None:
         monitor_options["monitor_filter"] = monitor_filter
     monitor = ReferenceMonitor(
-        TikHubClient(config),
+        client,
         monitor_output_root(),
         **monitor_options,
     )
@@ -169,6 +184,10 @@ def print_result(payload: dict[str, Any], *, as_json: bool) -> None:
         name = account.get("nickname") or account.get("username") or ""
         print(f"[成功] 已登记 {name}（{payload.get('account_action')}）")
         return
+    if "action" in payload and payload.get("markdown"):
+        action = "已存在" if payload.get("action") == "existing" else "已提取"
+        print(f"[成功] 文案{action}：{payload.get('markdown')}")
+        return
     summary = payload.get("summary") or {}
     print(
         f"[成功] 新增 {summary.get('added', 0)}，更新 {summary.get('updated', 0)}，"
@@ -182,7 +201,7 @@ def main() -> int:
     configure_console_encoding()
     parser = build_parser()
     args = parser.parse_args()
-    if args.command not in {"record", "monitor"}:
+    if args.command not in {"record", "monitor", "extract"}:
         parser.print_help()
         return 2
     try:
